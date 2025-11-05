@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analizador de Trayectoria f(x,y)</title>
+    <!-- Cargamos Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .drawing-canvas {
+            cursor: crosshair;
+        }
+        /* Añadimos un estado "disabled" para los botones */
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+
+    <div class="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full max-w-3xl">
+        
+        <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-2 text-center">
+            Analizador de Trayectoria
+        </h1>
+        <p class="text-gray-600 mb-6 text-center">
+            1. Dibuja una trayectoria. <br>
+            2. Haz clic en "Generar Mapa de Calor" para visualizar f(x, y).
+        </p>
+
+        <canvas id="drawingCanvas" width="700" height="400" 
+                class="drawing-canvas bg-white border-2 border-gray-300 rounded-lg w-full">
+            Tu navegador no soporta el elemento canvas.
+        </canvas>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+            <!-- Botones de control -->
+            <button id="clearButton" 
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-5 rounded-lg transition duration-200 shadow-md">
+                Limpiar Dibujo
+            </button>
+            <button id="heatmapButton" 
+                    class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-5 rounded-lg transition duration-200 shadow-md"
+                    disabled> <!-- Deshabilitado hasta que se dibuje algo -->
+                Generar Mapa de Calor (f(x,y))
+            </button>
+        </div>
+        
+        <div class="text-sm text-gray-700 text-center mt-4">
+            Puntos registrados: 
+            <span id="pointCount" class="font-bold text-gray-900">0</span>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. Definir el espacio de interacción ---
+        const canvas = document.getElementById('drawingCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Elementos de la UI
+        const clearButton = document.getElementById('clearButton');
+        const heatmapButton = document.getElementById('heatmapButton');
+        const pointCountDisplay = document.getElementById('pointCount');
+
+        // Variables de estado
+        let isDrawing = false;
+        let trajectory = []; // Almacena los puntos {x, y}
+        let isHeatmapVisible = false;
+
+        // Configuración del dibujo
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#1D4ED8';
+
+        // --- 4. Construir la función f(x, y) ---
+        
+        // Sigma (σ) es el "ancho" de nuestra "colina" Gaussiana.
+        // Un valor más grande da una "cordillera" más ancha y suave.
+        // Un valor más pequeño da una "cordillera" más nítida y estrecha.
+        const sigma = 30.0; // 30 píxeles de "ancho"
+        const twoSigmaSq = 2 * sigma * sigma;
+
+        /**
+         * Evalúa la función f(x, y) en un punto específico.
+         * Esta es nuestra "Estimación de Densidad por Kernels" (KDE).
+         * f(x, y) = Σ [ exp( -dist( (x,y), p_i )² / (2 * σ²) ) ] para cada p_i en la trayectoria
+         */
+        function evaluarF(x, y, trayectoriaActual) {
+            let sum = 0.0;
+
+            // Si no hay trayectoria, el valor es 0
+            if (trayectoriaActual.length === 0) {
+                return 0;
+            }
+
+            // Sumamos la contribución de cada punto en la trayectoria
+            for (const p of trayectoriaActual) {
+                const distSq = (x - p.x)**2 + (y - p.y)**2;
+                sum += Math.exp(-distSq / twoSigmaSq);
+            }
+            
+            // Devolvemos el valor total de "densidad" en ese punto
+            // (A veces se normaliza, pero para nuestros propósitos no es necesario)
+            return sum;
+        }
+
+        // --- Función para dibujar el Mapa de Calor ---
+        
+        function drawHeatmap() {
+            if (trajectory.length === 0) return;
+            isHeatmapVisible = true;
+
+            const step = 5; // Dibujar la heatmap en bloques de 5x5 píxeles (más rápido)
+            let maxVal = 0;
+            
+            // Paso 1: Encontrar el valor máximo de f(x,y) en el canvas para normalizar
+            // (Esto es necesario para que los colores se escalen correctamente)
+            const values = []; // Almacenamos valores para no recalcular
+            
+            for (let x = 0; x < canvas.width; x += step) {
+                const row = [];
+                for (let y = 0; y < canvas.height; y += step) {
+                    const val = evaluarF(x, y, trajectory);
+                    row.push(val);
+                    if (val > maxVal) {
+                        maxVal = val;
+                    }
+                }
+                values.push(row);
+            }
+            
+            if (maxVal === 0) return; // Evitar división por cero
+
+            // Paso 2: Dibujar el mapa de calor
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            for (let i = 0; i < values.length; i++) {
+                for (let j = 0; j < values[i].length; j++) {
+                    const x = i * step;
+                    const y = j * step;
+                    const val = values[i][j];
+                    
+                    // Normalizar el valor entre 0 y 1
+                    const normalized = val / maxVal;
+                    
+                    // Asignar un color (usaremos HSL: H=240 (azul) a H=0 (rojo))
+                    // HSL(hue, saturation, lightness)
+                    // 0 = rojo, 60 = amarillo, 120 = verde, 240 = azul
+                    // Iremos de azul (bajo) a rojo (alto)
+                    const hue = 240 * (1 - normalized); 
+                    const lightness = 50; // Mantenemos una luminosidad constante
+                    const saturation = 100;
+                    
+                    ctx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+                    ctx.fillRect(x, y, step, step);
+                }
+            }
+            console.log("Mapa de calor generado. Valor máximo f(x,y):", maxVal);
+        }
+
+        // --- 2. Capturar la trayectoria del mouse ---
+
+        function getMousePos(evt) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: (evt.clientX - rect.left) * scaleX,
+                y: (evt.clientY - rect.top) * scaleY
+            };
+        }
+
+        function startDrawing(e) {
+            // Si el mapa de calor está visible, limpiarlo primero
+            if (isHeatmapVisible) {
+                clearCanvas();
+                isHeatmapVisible = false;
+            }
+            
+            isDrawing = true;
+            trajectory = []; // Empezar nueva trayectoria
+            
+            const pos = getMousePos(e);
+            trajectory.push(pos);
+            
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+            
+            updatePointCount();
+            heatmapButton.disabled = true; // Deshabilitar mientras se dibuja
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            
+            const pos = getMousePos(e);
+            
+            // --- 3. Visualizar la trayectoria ---
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+            
+            trajectory.push(pos);
+            updatePointCount();
+        }
+
+        function stopDrawing() {
+            if (!isDrawing) return;
+            isDrawing = false;
+            ctx.closePath(); 
+
+            console.log("Trayectoria capturada:", trajectory.length, "puntos");
+            
+            // Habilitar el botón de heatmap si la trayectoria tiene puntos
+            if (trajectory.length > 0) {
+                heatmapButton.disabled = false;
+            }
+        }
+
+        // --- Funciones de los Botones ---
+        
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            trajectory = [];
+            updatePointCount();
+            heatmapButton.disabled = true;
+            isHeatmapVisible = false;
+            console.log("Canvas y datos limpiados.");
+        }
+        
+        function updatePointCount() {
+            pointCountDisplay.textContent = trajectory.length;
+        }
+
+        // --- Asignación de los Event Listeners ---
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing); 
+        
+        clearButton.addEventListener('click', clearCanvas);
+        heatmapButton.addEventListener('click', drawHeatmap);
+
+    </script>
+
+</body>
+</html>
+
