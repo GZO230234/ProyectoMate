@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Analizador de Trayectoria f(x,y)</title>
-    <!-- Cargamos Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -13,46 +12,79 @@
         .drawing-canvas {
             cursor: crosshair;
         }
-        /* Añadimos un estado "disabled" para los botones */
         button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
+        /* Estilos para los botones de análisis (toggles) */
+        .toggle-btn.active {
+            background-color: #16a34a; /* verde */
+            border-color: #15803d;
+        }
+        .toggle-btn {
+            background-color: #d1d5db; /* gris */
+            border-color: #9ca3af;
+        }
     </style>
 </head>
-<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+<body class="bg-gray-100 flex items-center justify-center min-h-screen py-10">
 
-    <div class="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full max-w-3xl">
+    <div class="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full max-w-6xl flex flex-col lg:flex-row gap-8">
         
-        <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-2 text-center">
-            Analizador de Trayectoria
-        </h1>
-        <p class="text-gray-600 mb-6 text-center">
-            1. Dibuja una trayectoria. <br>
-            2. Haz clic en "Generar Mapa de Calor" para visualizar f(x, y).
-        </p>
+        <div class="lg:w-1/3 w-full">
+            <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-2 text-center">
+                Analizador de Trayectoria
+            </h1>
+            <p class="text-gray-600 mb-4 text-center">
+                1. Dibuja una trayectoria en el canvas.
+                2. Activa los análisis para ver los resultados.
+            </p>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <button id="clearButton" 
+                        class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-5 rounded-lg transition duration-200 shadow-md">
+                    Limpiar Dibujo
+                </button>
+                <button id="heatmapButton" 
+                        class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-5 rounded-lg transition duration-200 shadow-md"
+                        disabled>
+                    Generar f(x,y) (Mapa Calor)
+                </button>
+            </div>
 
-        <canvas id="drawingCanvas" width="700" height="400" 
-                class="drawing-canvas bg-white border-2 border-gray-300 rounded-lg w-full">
-            Tu navegador no soporta el elemento canvas.
-        </canvas>
+            <div class="text-sm text-gray-700 text-center mb-4">
+                Puntos registrados: 
+                <span id="pointCount" class="font-bold text-gray-900">0</span>
+            </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
-            <!-- Botones de control -->
-            <button id="clearButton" 
-                    class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-5 rounded-lg transition duration-200 shadow-md">
-                Limpiar Dibujo
-            </button>
-            <button id="heatmapButton" 
-                    class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-5 rounded-lg transition duration-200 shadow-md"
-                    disabled> <!-- Deshabilitado hasta que se dibuje algo -->
-                Generar Mapa de Calor (f(x,y))
-            </button>
+            <h2 class="text-xl font-bold text-gray-800 mb-3">Análisis de Trayectoria</h2>
+            <div class="space-y-3">
+                <button id="toggleRates" class="toggle-btn text-white font-semibold py-2 px-4 rounded-lg w-full text-left" disabled>
+                    Activar Razones de Cambio (Pto. 6)
+                </button>
+                <button id="toggleExtremes" class="toggle-btn text-white font-semibold py-2 px-4 rounded-lg w-full text-left" disabled>
+                    Activar Máx/Mín Locales (Pto. 7)
+                </button>
+                <button id="toggleGradients" class="toggle-btn text-white font-semibold py-2 px-4 rounded-lg w-full text-left" disabled>
+                    Activar Vectores Gradiente (Pto. 8)
+                </button>
+            </div>
+
+            <div id="resultsContainer" class="mt-4 space-y-2">
+                <h3 class="text-lg font-semibold">Extremos Locales Detectados:</h3>
+                <div id="extremesList" class="text-sm text-gray-700 max-h-40 overflow-y-auto border p-2 rounded-md">
+                    No hay datos.
+                </div>
+            </div>
+
         </div>
-        
-        <div class="text-sm text-gray-700 text-center mt-4">
-            Puntos registrados: 
-            <span id="pointCount" class="font-bold text-gray-900">0</span>
+
+        <div class="lg:w-2/3 w-full">
+            <canvas id="drawingCanvas" width="700" height="400" 
+                    class="drawing-canvas bg-white border-2 border-gray-300 rounded-lg w-full h-auto"
+                    style="aspect-ratio: 700/400;">
+                Tu navegador no soporta el elemento canvas.
+            </canvas>
         </div>
     </div>
 
@@ -65,101 +97,86 @@
         const clearButton = document.getElementById('clearButton');
         const heatmapButton = document.getElementById('heatmapButton');
         const pointCountDisplay = document.getElementById('pointCount');
+        const toggleRatesBtn = document.getElementById('toggleRates');
+        const toggleExtremesBtn = document.getElementById('toggleExtremes');
+        const toggleGradientsBtn = document.getElementById('toggleGradients');
+        const extremesList = document.getElementById('extremesList');
 
         // Variables de estado
         let isDrawing = false;
         let trajectory = []; // Almacena los puntos {x, y}
-        let isHeatmapVisible = false;
+        let analysisResults = {
+            rates: [],
+            extremes: [],
+            gradients: []
+        };
+        let toggles = {
+            rates: false,
+            extremes: false,
+            gradients: false,
+            heatmap: false
+        };
 
         // Configuración del dibujo
+        const STROKE_STYLE_DEFAULT = '#1D4ED8';
         ctx.lineWidth = 3;
         ctx.lineCap = 'round';
-        ctx.strokeStyle = '#1D4ED8';
+        ctx.strokeStyle = STROKE_STYLE_DEFAULT;
 
-        // --- 4. Construir la función f(x, y) ---
-        
-        // Sigma (σ) es el "ancho" de nuestra "colina" Gaussiana.
-        // Un valor más grande da una "cordillera" más ancha y suave.
-        // Un valor más pequeño da una "cordillera" más nítida y estrecha.
-        const sigma = 30.0; // 30 píxeles de "ancho"
+        // --- 4. Construir la función f(x, y) (MAPA DE CALOR) ---
+        const sigma = 30.0;
         const twoSigmaSq = 2 * sigma * sigma;
 
-        /**
-         * Evalúa la función f(x, y) en un punto específico.
-         * Esta es nuestra "Estimación de Densidad por Kernels" (KDE).
-         * f(x, y) = Σ [ exp( -dist( (x,y), p_i )² / (2 * σ²) ) ] para cada p_i en la trayectoria
-         */
         function evaluarF(x, y, trayectoriaActual) {
             let sum = 0.0;
-
-            // Si no hay trayectoria, el valor es 0
-            if (trayectoriaActual.length === 0) {
-                return 0;
-            }
-
-            // Sumamos la contribución de cada punto en la trayectoria
+            if (trayectoriaActual.length === 0) return 0;
             for (const p of trayectoriaActual) {
                 const distSq = (x - p.x)**2 + (y - p.y)**2;
                 sum += Math.exp(-distSq / twoSigmaSq);
             }
-            
-            // Devolvemos el valor total de "densidad" en ese punto
-            // (A veces se normaliza, pero para nuestros propósitos no es necesario)
             return sum;
         }
 
-        // --- Función para dibujar el Mapa de Calor ---
-        
         function drawHeatmap() {
             if (trajectory.length === 0) return;
-            isHeatmapVisible = true;
-
-            const step = 5; // Dibujar la heatmap en bloques de 5x5 píxeles (más rápido)
-            let maxVal = 0;
+            toggles.heatmap = true;
             
-            // Paso 1: Encontrar el valor máximo de f(x,y) en el canvas para normalizar
-            // (Esto es necesario para que los colores se escalen correctamente)
-            const values = []; // Almacenamos valores para no recalcular
+            // Desactivar otros análisis visuales para evitar confusión
+            toggles.rates = false;
+            toggles.extremes = false;
+            toggles.gradients = false;
+            updateToggleButtons();
+
+            console.log("Generando mapa de calor...");
+            const step = 5; 
+            let maxVal = 0;
+            const values = []; 
             
             for (let x = 0; x < canvas.width; x += step) {
                 const row = [];
                 for (let y = 0; y < canvas.height; y += step) {
                     const val = evaluarF(x, y, trajectory);
                     row.push(val);
-                    if (val > maxVal) {
-                        maxVal = val;
-                    }
+                    if (val > maxVal) maxVal = val;
                 }
                 values.push(row);
             }
             
-            if (maxVal === 0) return; // Evitar división por cero
+            if (maxVal === 0) return; 
 
-            // Paso 2: Dibujar el mapa de calor
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
             for (let i = 0; i < values.length; i++) {
                 for (let j = 0; j < values[i].length; j++) {
                     const x = i * step;
                     const y = j * step;
-                    const val = values[i][j];
-                    
-                    // Normalizar el valor entre 0 y 1
-                    const normalized = val / maxVal;
-                    
-                    // Asignar un color (usaremos HSL: H=240 (azul) a H=0 (rojo))
-                    // HSL(hue, saturation, lightness)
-                    // 0 = rojo, 60 = amarillo, 120 = verde, 240 = azul
-                    // Iremos de azul (bajo) a rojo (alto)
-                    const hue = 240 * (1 - normalized); 
-                    const lightness = 50; // Mantenemos una luminosidad constante
-                    const saturation = 100;
-                    
-                    ctx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+                    const normalized = values[i][j] / maxVal;
+                    const hue = 240 * (1 - normalized); // 240 (azul) a 0 (rojo)
+                    ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
                     ctx.fillRect(x, y, step, step);
                 }
             }
-            console.log("Mapa de calor generado. Valor máximo f(x,y):", maxVal);
+            console.log("Mapa de calor generado.");
         }
 
         // --- 2. Capturar la trayectoria del mouse ---
@@ -175,14 +192,10 @@
         }
 
         function startDrawing(e) {
-            // Si el mapa de calor está visible, limpiarlo primero
-            if (isHeatmapVisible) {
-                clearCanvas();
-                isHeatmapVisible = false;
-            }
-            
+            clearCanvasVisuals(); // Limpia análisis, no la trayectoria
             isDrawing = true;
-            trajectory = []; // Empezar nueva trayectoria
+            trajectory = []; 
+            analysisResults = { rates: [], extremes: [], gradients: [] };
             
             const pos = getMousePos(e);
             trajectory.push(pos);
@@ -191,7 +204,7 @@
             ctx.moveTo(pos.x, pos.y);
             
             updatePointCount();
-            heatmapButton.disabled = true; // Deshabilitar mientras se dibuja
+            disableAnalysisButtons(); 
         }
 
         function draw(e) {
@@ -200,6 +213,8 @@
             const pos = getMousePos(e);
             
             // --- 3. Visualizar la trayectoria ---
+            ctx.strokeStyle = STROKE_STYLE_DEFAULT;
+            ctx.lineWidth = 3;
             ctx.lineTo(pos.x, pos.y);
             ctx.stroke();
             
@@ -214,25 +229,262 @@
 
             console.log("Trayectoria capturada:", trajectory.length, "puntos");
             
-            // Habilitar el botón de heatmap si la trayectoria tiene puntos
-            if (trajectory.length > 0) {
-                heatmapButton.disabled = false;
+            if (trajectory.length > 1) {
+                // Realizar todos los cálculos
+                analyzeTrajectory();
+                // Habilitar botones
+                enableAnalysisButtons();
             }
         }
 
-        // --- Funciones de los Botones ---
+        // --- 6, 7, 8. Funciones de ANÁLISIS ---
+
+        function analyzeTrajectory() {
+            if (trajectory.length < 2) return;
+            
+            console.log("Iniciando análisis...");
+            analysisResults.rates = calculateRatesOfChange();
+            analysisResults.extremes = findLocalExtremes();
+            analysisResults.gradients = calculateGradients();
+
+            // Mostrar resultados en la UI
+            displayExtremesList();
+            console.log("Análisis completo.");
+        }
+
+        /**
+         * 6. Cálculo de razones de cambio (dy/dx) [cite: 42-43]
+         */
+        function calculateRatesOfChange() {
+            const rates = [];
+            for (let i = 0; i < trajectory.length - 1; i++) {
+                const p1 = trajectory[i];
+                const p2 = trajectory[i+1];
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+
+                let rate;
+                if (Math.abs(dx) < 0.001) {
+                    // Validar que no se divida por cero [cite: 73]
+                    rate = (dy > 0) ? Infinity : (dy < 0) ? -Infinity : 0;
+                } else {
+                    rate = dy / dx;
+                }
+                rates.push({ p1, p2, rate });
+            }
+            return rates;
+        }
+
+        /**
+         * 7. Detección de máximos y mínimos locales [cite: 49]
+         */
+        function findLocalExtremes() {
+            const extremes = [];
+            // Usamos una "ventana" para ignorar ruido menor
+            const window = 5; 
+            if (trajectory.length < window * 2 + 1) return [];
+
+            for (let i = window; i < trajectory.length - window; i++) {
+                const p = trajectory[i];
+                let isMin = true;
+                let isMax = true;
+
+                // Comprobar vecinos
+                for (let j = 1; j <= window; j++) {
+                    if (trajectory[i - j].y <= p.y) isMin = false;
+                    if (trajectory[i + j].y <= p.y) isMin = false;
+                    if (trajectory[i - j].y >= p.y) isMax = false;
+                    if (trajectory[i + j].y >= p.y) isMax = false;
+                }
+
+                if (isMin) {
+                    extremes.push({ p: p, type: 'min' }); [cite: 53]
+                    i += window; // Evitar detectar puntos muy cercanos
+                } else if (isMax) {
+                    extremes.push({ p: p, type: 'max' }); [cite: 51]
+                    i += window;
+                }
+            }
+            return extremes;
+        }
+
+        /**
+         * 8. Cálculo del vector gradiente (Velocidad) [cite: 57-58]
+         */
+        function calculateGradients() {
+            const gradients = [];
+            // Asumimos dt = 1 (cambio por punto registrado) [cite: 59]
+            const dt = 1; 
+            for (let i = 0; i < trajectory.length - 1; i++) {
+                const p1 = trajectory[i];
+                const p2 = trajectory[i+1];
+                const dx_dt = (p2.x - p1.x) / dt;
+                const dy_dt = (p2.y - p1.y) / dt;
+                gradients.push({ p: p1, v: { x: dx_dt, y: dy_dt } });
+            }
+            return gradients;
+        }
+
+
+        // --- Funciones de DIBUJO y VISUALIZACIÓN ---
+
+        function redrawCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (toggles.heatmap) {
+                drawHeatmap(); // El mapa de calor se dibuja primero
+                return; // El mapa de calor no se combina con otros análisis
+            }
+            
+            // Dibujar la trayectoria base
+            drawBaseTrajectory();
+
+            // Dibujar análisis activados
+            if (toggles.rates) drawRates();
+            if (toggles.gradients) drawGradients();
+            if (toggles.extremes) drawExtremes(); // Dibujar extremos al final
+        }
+
+        function drawBaseTrajectory() {
+            if (trajectory.length < 2) return;
+            ctx.beginPath();
+            ctx.moveTo(trajectory[0].x, trajectory[0].y);
+            for (let i = 1; i < trajectory.length; i++) {
+                ctx.lineTo(trajectory[i].x, trajectory[i].y);
+            }
+            ctx.strokeStyle = toggles.rates ? '#AAA' : STROKE_STYLE_DEFAULT; // Gris si las tasas están activas
+            ctx.lineWidth = toggles.rates ? 1 : 3;
+            ctx.stroke();
+        }
+
+        /** 6. Visualizar Razones de Cambio [cite: 46] */
+        function drawRates() {
+            ctx.lineWidth = 4;
+            for (const seg of analysisResults.rates) {
+                ctx.beginPath();
+                ctx.moveTo(seg.p1.x, seg.p1.y);
+                ctx.lineTo(seg.p2.x, seg.p2.y);
+                
+                // Colorear segmentos según la magnitud
+                if (seg.rate > 0.5) ctx.strokeStyle = 'green';
+                else if (seg.rate < -0.5) ctx.strokeStyle = 'red';
+                else if (isFinite(seg.rate)) ctx.strokeStyle = 'gray';
+                else ctx.strokeStyle = 'orange'; // Vertical
+                
+                ctx.stroke();
+            }
+        }
+
+        /** 7. Visualizar Máximos y Mínimos [cite: 54] */
+        function drawExtremes() {
+            for (const ext of analysisResults.extremes) {
+                ctx.beginPath();
+                ctx.arc(ext.p.x, ext.p.y, 8, 0, 2 * Math.PI);
+                ctx.fillStyle = (ext.type === 'max') ? 'rgba(255, 0, 0, 0.7)' : 'rgba(0, 0, 255, 0.7)'; // Rojo para max, Azul para min
+                ctx.fill();
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+        }
+
+        /** 8. Visualizar Vectores Gradiente [cite: 60] */
+        function drawGradients() {
+            const arrowLength = 10; // Longitud de la flecha
+            ctx.strokeStyle = '#FF00FF'; // Magenta
+            ctx.lineWidth = 1;
+            
+            // Dibujar solo algunos vectores para no saturar
+            for (let i = 0; i < analysisResults.gradients.length; i += 5) {
+                const grad = analysisResults.gradients[i];
+                const p = grad.p;
+                const v = grad.v;
+                
+                // Normalizar vector para dibujar flecha
+                const mag = Math.sqrt(v.x**2 + v.y**2);
+                if (mag === 0) continue;
+                
+                const p2 = {
+                    x: p.x + (v.x / mag) * arrowLength,
+                    y: p.y + (v.y / mag) * arrowLength
+                };
+
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.stroke();
+                
+                // Dibujar punta de flecha
+                // (Simplificado)
+            }
+        }
+        
+        /** 7. Mostrar extremos en la tabla [cite: 55] */
+        function displayExtremesList() {
+            if (analysisResults.extremes.length === 0) {
+                extremesList.innerHTML = 'No se detectaron extremos locales.';
+                return;
+            }
+            
+            let html = '<ul>';
+            analysisResults.extremes.forEach(ext => {
+                const type = (ext.type === 'max') ? 'Máximo' : 'Mínimo';
+                const x = ext.p.x.toFixed(1);
+                const y = ext.p.y.toFixed(1);
+                html += `<li class="${ext.type === 'max' ? 'text-red-600' : 'text-blue-600'}">
+                            <strong>${type}</strong> en (x: ${x}, y: ${y})
+                         </li>`;
+            });
+            html += '</ul>';
+            extremesList.innerHTML = html;
+        }
+
+        // --- Funciones de los Botones y Estado ---
         
         function clearCanvas() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             trajectory = [];
+            analysisResults = { rates: [], extremes: [], gradients: [] };
             updatePointCount();
-            heatmapButton.disabled = true;
-            isHeatmapVisible = false;
+            disableAnalysisButtons();
+            extremesList.innerHTML = 'No hay datos.';
+            toggles.heatmap = false;
             console.log("Canvas y datos limpiados.");
+        }
+
+        function clearCanvasVisuals() {
+            // Limpia el canvas pero mantiene los datos
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            toggles.heatmap = false;
         }
         
         function updatePointCount() {
             pointCountDisplay.textContent = trajectory.length;
+        }
+
+        function disableAnalysisButtons() {
+            heatmapButton.disabled = true;
+            toggleRatesBtn.disabled = true;
+            toggleExtremesBtn.disabled = true;
+            toggleGradientsBtn.disabled = true;
+            
+            toggles.rates = false;
+            toggles.extremes = false;
+            toggles.gradients = false;
+            updateToggleButtons();
+        }
+        
+        function enableAnalysisButtons() {
+            heatmapButton.disabled = false;
+            toggleRatesBtn.disabled = false;
+            toggleExtremesBtn.disabled = false;
+            toggleGradientsBtn.disabled = false;
+        }
+
+        function updateToggleButtons() {
+            toggleRatesBtn.classList.toggle('active', toggles.rates);
+            toggleExtremesBtn.classList.toggle('active', toggles.extremes);
+            toggleGradientsBtn.classList.toggle('active', toggles.gradients);
         }
 
         // --- Asignación de los Event Listeners ---
@@ -244,8 +496,28 @@
         clearButton.addEventListener('click', clearCanvas);
         heatmapButton.addEventListener('click', drawHeatmap);
 
-    </script>
+        // Listeners para los botones de análisis
+        toggleRatesBtn.addEventListener('click', () => {
+            toggles.rates = !toggles.rates;
+            if (toggles.rates) toggles.heatmap = false;
+            updateToggleButtons();
+            redrawCanvas();
+        });
+        
+        toggleExtremesBtn.addEventListener('click', () => {
+            toggles.extremes = !toggles.extremes;
+            if (toggles.extremes) toggles.heatmap = false;
+            updateToggleButtons();
+            redrawCanvas();
+        });
+        
+        toggleGradientsBtn.addEventListener('click', () => {
+            toggles.gradients = !toggles.gradients;
+            if (toggles.gradients) toggles.heatmap = false;
+            updateToggleButtons();
+            redrawCanvas();
+        });
 
+    </script>
 </body>
 </html>
-
